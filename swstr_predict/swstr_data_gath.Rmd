@@ -1,0 +1,104 @@
+---
+title: "swstr data gath"
+author: "Owen McGrattan"
+date: "10/18/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# load in packages
+library(dplyr)
+library(ggplot2)
+library(baseballr)
+library(readr)
+library(stats)
+```
+
+```{r message=FALSE, warning=FALSE}
+# read in pitcher data
+pitch_15 <- read_csv("baseball/statcast_pitch_2015.csv")
+pitch_16 <- read_csv("baseball/statcast_pitch_2016.csv")
+pitch_18 <- read_csv("baseball/statcast_pitch_2018.csv")
+pitch_17 <- read_csv("baseball/statcast_pitch_2017.csv")
+pitch <- rbind(pitch_17, pitch_18, pitch_16, pitch_15)
+offspeed <- filter(pitch, pitch_type != "FF" & pitch_type != "FT" & pitch_type != "FC" & pitch_type != "SI" )
+```
+
+
+```{r}
+# create a larger df with each offspeed offering for each pitcher
+grouped <- offspeed %>% group_by(player_name, pitch_type, game_year) %>% summarise(
+          velo = mean(release_speed, na.rm = TRUE),
+          pfx_x = mean(pfx_x, na.rm = TRUE),
+          pfx_z = mean(pfx_z, na.rm = TRUE),
+          release_pos_x = mean(release_pos_x, na.rm = TRUE),
+          release_pos_z = mean(release_pos_z, na.rm = TRUE),
+          handedness = p_throws[1], 
+          spin_rate = mean(release_spin_rate, na.rm = TRUE),
+          extension = mean(release_extension, na.rm = TRUE),
+          len = n()
+) %>% filter(len > 50)
+
+
+```
+
+```{r}
+# calculate swstr and overall pitch usage
+grouped$swstr <- rep(0, length(grouped$player_name))
+grouped$pct <- rep(0, length(grouped$player_name))
+for (i in 1:length(grouped$player_name)) {
+  
+  grouped$swstr[i] <- nrow(filter(offspeed, player_name == grouped$player_name[i], 
+                                              pitch_type == grouped$pitch_type[i],
+                                              game_year == grouped$game_year[i],
+                                              description == "swinging_strike")) / 
+                                  nrow(filter(offspeed, player_name == grouped$player_name[i], 
+                                              game_year == grouped$game_year[i],
+                                              pitch_type == grouped$pitch_type[i]))
+  grouped$pct[i] <- nrow(filter(offspeed,
+                                player_name == grouped$player_name[i],
+                                game_year == grouped$game_year[i],
+                                pitch_type == grouped$pitch_type[i])) / 
+                    nrow(filter(pitch, 
+                                player_name == grouped$player_name[i],
+                                game_year == grouped$game_year[i]))
+}
+```
+
+
+
+
+
+
+```{r}
+# repeat process for FBs
+grouped$fb_diff <- rep(0, length(grouped$player_name))
+grouped$fb_pfxx <- rep(0, length(grouped$player_name))
+grouped$fb_pfxz <- rep(0, length(grouped$player_name))
+grouped$fb_swstr <- rep(0, length(grouped$player_name))
+for (i in 1:length(grouped$player_name)) {
+  
+  pitch_fast <- filter(pitch, 
+                      player_name == grouped$player_name[i],
+                      game_year == grouped$game_year[i],
+                      pitch_type == "FF" | pitch_type == "FT" | pitch_type == "SI")
+  grouped$fb_swstr[i] <- nrow(filter(pitch_fast, player_name == grouped$player_name[i],
+                                              game_year == grouped$game_year[i],
+                                              description == "swinging_strike")) / 
+                                  nrow(filter(offspeed, player_name == grouped$player_name[i], 
+                                              game_year == grouped$game_year[i])) 
+  grouped$fb_diff[i] <- mean(pitch_fast$release_speed, na.rm = TRUE)
+  grouped$fb_pfxx[i] <- mean(pitch_fast$pfx_x, na.rm = TRUE)
+  grouped$fb_pfxz[i] <- mean(pitch_fast$pfx_z, na.rm = TRUE)
+}
+```
+
+```{r}
+# save grouped table to csv
+write.csv(grouped, "swstr_pitchers.csv")
+```
+
