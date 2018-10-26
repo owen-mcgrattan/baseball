@@ -47,7 +47,7 @@ ggplot(filter(df, len > 150)) + geom_point(aes(x = pfx_x, y = pfx_z, color = pit
 
 ```{r}
 # shrink our sample down to those who have thrown at least 150 of an offspeed pitch, none of the more obscure offspeed offerings.
-samp <- df %>% filter(len >= 150, pitch_type != "KN", pitch_type != "FO", pitch_type != "EP")
+samp <- df %>% filter(len >= 200, pitch_type != "KN", pitch_type != "FO", pitch_type != "EP")
 ```
 
 
@@ -65,9 +65,9 @@ print(b)
 varImpPlot(b)
 ```
 
-- Our most important variable in this situation was vertical movement which isn't too surprising considering you want pitches that move up and down rather than those that travel more left-right along the barrel.  Also not surprising was the fact that velocity, both of the offspeed pitch and average FB velo was incredibly important.  I was curious to see that release height played such a factor, moreso than horizontal movement.  It could be some sort of tuning due to extreme outliers in release point or more that horizontal movement doesn't tell us much at all for whiffs. 
+- Our second important variable in this situation was vertical movement which isn't too surprising considering you want pitches that move up and down rather than those that travel more left-right along the barrel.  Also not surprising was the fact that velocity, both of the offspeed pitch and average FB velo was incredibly important.  I was curious to see that release height played such a factor, moreso than horizontal movement.  It could be some sort of tuning due to extreme outliers in release point or more that horizontal movement doesn't tell us much at all for whiffs. 
 
-- Taking a general overview of our model, an R^2 of ~ 0.49/.48 tells us a strong deal given just pure "stuff" and not taking the context of each individual pitch.  Of course there's a good deal of variation that we should not expect to be explained in the data I fed into the model.  While I do give pct usage and total num of pitches thrown, I do not give any information about pitch location, usage by count, sequencing, batter handedness, leverage, so on and so forth. 
+- Taking a general overview of our model, an R^2 of ~ 0.41/.42 tells us a strong deal given just pure "stuff" and not taking the context of each individual pitch.  Of course there's a good deal of variation that we should not expect to be explained in the data I fed into the model.  While I do give pct usage and total num of pitches thrown, I do not give any information about pitch location, usage by count, sequencing, batter handedness, leverage, so on and so forth. 
 
 - We've put together a decent model but it has a finite application.  Given that swstr% is something that'll stabilize fairly quickly it doesn't necessarily help identify current MLB candidates that will see a jump in performance, we can simply look at MLB pitchers who generate a strong amount of whiffs on one or more misused offspeed pitches.  This prediction is something that better serves identifying the minor league talent (in an ideal scenario where we have movement data on these pitches) who project to produce above average whiffs and therefore strikeouts. It'd greatly benefit our model to include swstr%'s for given players in our data set who have pitched in either the AA or AAA level.  Unfortunately, while we can grab swstr% for pitchers, we do not have publically available pitch-by-pitch data with each pitch type tracked. 
 

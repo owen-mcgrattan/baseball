@@ -20,10 +20,10 @@ library(stats)
 
 ```{r message=FALSE, warning=FALSE}
 # read in pitcher data
-pitch_15 <- read_csv("baseball/statcast_pitch_2015.csv")
-pitch_16 <- read_csv("baseball/statcast_pitch_2016.csv")
-pitch_18 <- read_csv("baseball/statcast_pitch_2018.csv")
-pitch_17 <- read_csv("baseball/statcast_pitch_2017.csv")
+pitch_15 <- read_csv("../statcast_pitch_2015.csv")
+pitch_16 <- read_csv("../statcast_pitch_2016.csv")
+pitch_18 <- read_csv("../statcast_pitch_2018.csv")
+pitch_17 <- read_csv("../statcast_pitch_2017.csv")
 pitch <- rbind(pitch_17, pitch_18, pitch_16, pitch_15)
 offspeed <- filter(pitch, pitch_type != "FF" & pitch_type != "FT" & pitch_type != "FC" & pitch_type != "SI" )
 ```
@@ -55,7 +55,8 @@ for (i in 1:length(grouped$player_name)) {
   grouped$swstr[i] <- nrow(filter(offspeed, player_name == grouped$player_name[i], 
                                               pitch_type == grouped$pitch_type[i],
                                               game_year == grouped$game_year[i],
-                                              description == "swinging_strike")) / 
+                                              description == "swinging_strike" |
+                                              description == "swinging_strike_blocked")) / 
                                   nrow(filter(offspeed, player_name == grouped$player_name[i], 
                                               game_year == grouped$game_year[i],
                                               pitch_type == grouped$pitch_type[i]))
@@ -88,7 +89,8 @@ for (i in 1:length(grouped$player_name)) {
                       pitch_type == "FF" | pitch_type == "FT" | pitch_type == "SI")
   grouped$fb_swstr[i] <- nrow(filter(pitch_fast, player_name == grouped$player_name[i],
                                               game_year == grouped$game_year[i],
-                                              description == "swinging_strike")) / 
+                                              description == "swinging_strike" |
+                                              description == "swinging_strike_blocked")) / 
                                   nrow(filter(offspeed, player_name == grouped$player_name[i], 
                                               game_year == grouped$game_year[i])) 
   grouped$fb_diff[i] <- mean(pitch_fast$release_speed, na.rm = TRUE)
