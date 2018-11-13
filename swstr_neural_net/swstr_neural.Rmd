@@ -1,0 +1,169 @@
+---
+title: "Swinging Strike Predictions with nnet"
+author: "Owen McGrattan"
+date: "11/2/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### Predict Swstr out of Swings (data from the 2017-2018 seasons)
+```{r}
+library(readr)
+library(nnet)
+library(ggplot2)
+library(dplyr)
+```
+1. Loading in Our Pitch Data
+
+```{r message=FALSE, warning=FALSE}
+# read in our pitch type data
+pitch_17 <- read_csv("../statcast_pitch_2017.csv")
+pitch_18 <- read_csv("../statcast_pitch_2018.csv")
+
+dat <- rbind(pitch_18, pitch_17)
+```
+
+
+2. Pre-processing and pre-processing and pre-processing and pre-processing...
+```{r}
+# filter out factors we won't need in the first place (both factors we don't want to account for as well as missing factors altogether)
+dat <- dat %>% select(pitch_type, release_speed, batter, release_pos_x, release_pos_z, description, zone, game_type, game_year, stand, p_throws, balls, strikes, pfx_x, pfx_z, plate_x, plate_z, on_3b, on_2b, on_1b, outs_when_up, inning, inning_topbot, fielder_2, vx0, vy0, vz0, ax, ay, az, sz_top, sz_bot, effective_speed, release_spin_rate, release_extension, release_pos_y, at_bat_number, pitch_number, bat_score, fld_score, if_fielding_alignment, of_fielding_alignment)
+
+
+```
+
+```{r}
+# for our runners on vars, want to convert runner ids to just binary to indicate whether or not a runner is on
+make_bin <- function(x) {
+  if (!is.na(x)) {
+    return(1)
+  } else {
+    return(0)
+  }
+}
+
+dat$on_1b <- as.numeric(lapply(dat$on_1b, FUN = make_bin))
+dat$on_2b <- as.numeric(lapply(dat$on_2b, FUN = make_bin))
+dat$on_3b <- as.numeric(lapply(dat$on_3b, FUN = make_bin))
+
+```
+
+```{r}
+# create our swstr, swstr_blocked variable
+make_bin_swstr <- function(x) {
+  if (x == "swinging_strike" || x == "swinging_strike_blocked") {
+    return(1)
+  } else {
+    return(0)
+  }
+}
+
+dat$whiff <- (lapply(dat$description, make_bin_swstr))
+
+make_bin_swing <- function(x) {
+  if (x == "ball") {
+    return("no swing")
+  } else {
+    return("swing")
+  }
+}
+
+dat$swing <- (lapply(dat$description, make_bin_swing))
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+# must also attach corresponding framing numbers 
+framing <- read_csv("framing_17_18.csv")
+framing <- framing %>% group_by(batter) %>% summarise(frame = mean(FRAA_ADJ))
+colnames(framing)[1] <- "fielder_2"
+# replace catcher ID with FRAA_ADJ
+# merge framing numbers
+dat <- merge(dat, framing, by = "fielder_2" , sort = FALSE)
+```
+
+
+```{r}
+# now time to integrate the plate discipline numbers
+# read in batter summary #s
+bat_summary <- read_csv("batter_summary.csv")
+dat <- merge(dat, bat_summary, by = "batter", sort = FALSE)
+```
+
+
+```{r}
+# change balls and strikes to single count variable
+dat$count <- as.factor(paste(dat$balls, dat$strikes, sep = '-'))
+dat$run_diff <- as.factor(dat$bat_score - dat$fld_score)
+```
+
+
+```{r}
+# filter dat to only have swings
+dat <- filter(dat, swing == "swing")
+
+# drop name columns and other unnecessary
+dat <- dat[, -c(1, 2, 7, 10, 13, 14, 36, 37, 39, 40, 41, 42, 44)]
+# clean out any rows with missing data
+
+dat <- na.omit(dat)
+```
+
+```{r}
+# make numeric appearing values factors before we normalize
+fac_columns <- c("zone", "on_3b", "on_2b", "on_1b", "outs_when_up", "inning", "pitch_number")
+dat[fac_columns] <- lapply(dat[fac_columns], factor)
+```
+
+```{r}
+# normalize our data
+library(MASS)
+ind <- sapply(dat, is.numeric)
+dat[ind] <- lapply(dat[ind], scale)
+```
+
+
+3. Building our model
+
+```{r}
+dat <- as.data.frame(lapply(dat, unlist))
+dat$whiff <- as.factor(dat$whiff)
+# test train split (75, 25)
+smp_size <- floor(.75 * nrow(dat))
+set.seed(123)
+train_ind <- sample(seq_len(nrow(dat)), size = smp_size)
+train <- dat[train_ind, ]
+test <- dat[-train_ind,]
+
+test_vals <- test$whiff
+train_vals <- train$whiff
+
+```
+
+
+
+```{r}
+# fit our model
+model <- nnet(class.ind(whiff) ~ ., train,  size = 6, maxit = 200, linout = F, decay = 5e-4, softmax = T)
+
+```
+
+
+```{r}
+ps <- predict(model, test, type = "class")
+```
+
+```{r}
+library(caret)
+confusionMatrix(as.factor(test_vals), as.factor(ps))
+```
+
+
+
+- Nothing to ride home about but a worthwhile process getting familiar with the nnet package in R.  While the accuracy may be immediately attractive to the eye, the error here is not ideal.  Both types of errors are bad here but the worst is the situation in which we predict a whiff when there isn't one.  Unfortunately it happens a great deal here and it'd be useful to place greater emphasis on avoiding this particular error in the future. 
+
+- In the future it'd be useful to refine some of our variables a little bit.  Instead of accounting for inning and score difference, just have a measure of leverage.  Since I did include batter information it would be useful to include some pitcher information as well since it is rather difficult to predict swinging strikes just off of pitch parameters alone.  The biggest missing piece of all of this is not accounting for the importance of sequencing through an at bat.  On top of sequencing, proper consideration should be given to tunneling and how well a given pitcher is able to tunnel pitches in the sequence of an at bat.  Some kind of timeseries analysis is in order. 
+- Building off the premise of predicting whiffs from all swings, it'd be incredibly useful to predict swings from all pitches.  When a batter does or does not choose to swing is a fairly noisy matter to predict, but building a model can help us identify some patterns that are not clearly apparent to us.

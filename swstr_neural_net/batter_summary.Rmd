@@ -1,0 +1,72 @@
+---
+title: "Untitled"
+author: "Owen McGrattan"
+date: "11/4/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+- Create summary stats for 2017-2018 batters
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r message=FALSE, warning=FALSE}
+# bring in our bat data
+pitch_17 <- read_csv("statcast_pitch_2017.csv")
+pitch_18 <- read_csv("statcast_pitch_2018.csv")
+pitch <- rbind(pitch_17, pitch_18)
+```
+
+```{r}
+# are we missing any batter ids?
+sum(is.na(pitch$batter))
+```
+- Dope, we can group by each unique batter id
+
+```{r}
+grouped <- pitch %>% group_by(batter) %>% summarise(
+          woba = mean(woba_value, na.rm = TRUE), 
+          max_exit = max(launch_speed, na.rm = TRUE), 
+          barrels = mean(barrel, na.rm = TRUE), 
+          count = n()
+)
+```
+
+```{r}
+# calculate attack angle
+uniq <- unique(grouped$batter)
+grouped$attack <- rep(0, length(uniq))
+
+for (i in 1:length(uniq)) {
+  # filter data set
+  dat <- pitch %>% filter(batter == uniq[i], !(is.na(bb_type))) %>% 
+    arrange(desc(launch_speed))
+    
+  grouped$attack[i] <- mean(dat[1:15,]$launch_angle, na.rm = TRUE)
+  
+}
+```
+
+```{r}
+grouped$chase <- rep(0, length(uniq))
+grouped$chase_twok <- rep(0, length(uniq))
+
+# get chase pct, chase below and above the zone, chase in 2 K count
+for (i in 1:length(uniq)) {
+  grouped$chase[i] <- nrow(filter(pitch, batter == uniq[i], zone > 9, type != "B")) / 
+                      nrow(filter(pitch, batter == uniq[i], zone > 9))
+  grouped$chase_twok[i] <- nrow(filter(pitch, batter == uniq[i], zone > 9, type != "B", strikes == 2)) / nrow(filter(pitch, batter == uniq[i], zone > 9, strikes == 2))
+}
+```
+
+```{r}
+# write to csv
+write.csv(grouped, "batter_summary.csv")
+```
+
