@@ -1,0 +1,1 @@
+This is the work did for predicting extra base hits based on spray angle, launch angle, exit velocity, and batter handedness. I attempted to see whether or not it was a repeatable skill for pitchers to limit expected extra base hits but it does not appear to be much of controllable skill.
