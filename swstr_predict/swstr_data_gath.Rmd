@@ -25,9 +25,30 @@ pitch_16 <- read_csv("../statcast_pitch_2016.csv")
 pitch_18 <- read_csv("../statcast_pitch_2018.csv")
 pitch_17 <- read_csv("../statcast_pitch_2017.csv")
 pitch <- rbind(pitch_17, pitch_18, pitch_16, pitch_15)
-offspeed <- filter(pitch, pitch_type != "FF" & pitch_type != "FT" & pitch_type != "FC" & pitch_type != "SI" )
+rm(pitch_15, pitch_16, pitch_17, pitch_18)
+
 ```
 
+
+```{r}
+# add approach angle
+rad2deg = function(rad) {
+   return((180 * rad) / pi)
+}
+pitch$dist <- sqrt((pitch$release_pos_z - pitch$plate_z)^2 + pitch$release_pos_y^2)
+pitch$appch_angle <- rad2deg(sinpi((pitch$release_pos_z - pitch$plate_z) / (pitch$dist)))
+```
+
+```{r}
+# create binary whether or not a pitch was in zone
+strikes <- c(1:9)
+pitch$in_zone <- ifelse(pitch$zone %in% strikes, 1, 0)
+```
+
+```{r}
+# create offspeed grouping
+offspeed <- filter(pitch, pitch_type != "FF" & pitch_type != "FT" & pitch_type != "FC" & pitch_type != "SI" )
+```
 
 ```{r}
 # create a larger df with each offspeed offering for each pitcher
@@ -35,11 +56,14 @@ grouped <- offspeed %>% group_by(player_name, pitch_type, game_year) %>% summari
           velo = mean(release_speed, na.rm = TRUE),
           pfx_x = mean(pfx_x, na.rm = TRUE),
           pfx_z = mean(pfx_z, na.rm = TRUE),
+          plate_x = mean(plate_x, na.rm = TRUE),
+          plate_z = mean(plate_z, na.rm = TRUE),
           release_pos_x = mean(release_pos_x, na.rm = TRUE),
           release_pos_z = mean(release_pos_z, na.rm = TRUE),
           handedness = p_throws[1], 
           spin_rate = mean(release_spin_rate, na.rm = TRUE),
           extension = mean(release_extension, na.rm = TRUE),
+          appch_angle = mean(appch_angle, na.rm = TRUE),
           len = n()
 ) %>% filter(len > 50)
 
@@ -81,6 +105,10 @@ grouped$fb_diff <- rep(0, length(grouped$player_name))
 grouped$fb_pfxx <- rep(0, length(grouped$player_name))
 grouped$fb_pfxz <- rep(0, length(grouped$player_name))
 grouped$fb_swstr <- rep(0, length(grouped$player_name))
+grouped$fb_zone <- rep(0, length(grouped$player_name))
+grouped$fb_platex <- rep(0, length(grouped$player_name))
+grouped$fb_platez <- rep(0, length(grouped$player_name))
+grouped$fb_appch <- rep(0, length(grouped$player_name))
 for (i in 1:length(grouped$player_name)) {
   
   pitch_fast <- filter(pitch, 
@@ -93,9 +121,13 @@ for (i in 1:length(grouped$player_name)) {
                                               description == "swinging_strike_blocked")) / 
                                   nrow(filter(offspeed, player_name == grouped$player_name[i], 
                                               game_year == grouped$game_year[i])) 
+  grouped$fb_zone[i] <- mean(pitch_fast$in_zone)
   grouped$fb_diff[i] <- mean(pitch_fast$release_speed, na.rm = TRUE)
   grouped$fb_pfxx[i] <- mean(pitch_fast$pfx_x, na.rm = TRUE)
   grouped$fb_pfxz[i] <- mean(pitch_fast$pfx_z, na.rm = TRUE)
+  grouped$fb_platex[i] <- mean(pitch_fast$plate_x, na.rm = TRUE)
+  grouped$fb_platez[i] <- mean(pitch_fast$plate_z, na.rm = TRUE)
+  grouped$fb_appch[i] <- mean(pitch_fast$appch_angle, na.rm = TRUE)
 }
 ```
 
