@@ -20,6 +20,7 @@ library(readr)
 library(randomForest)
 library(stats)
 library(rfUtilities)
+library(standardize)
 ```
 
 ```{r}
@@ -66,10 +67,10 @@ df$near_comp <- mapply(pitch_comp, df$player_name, df$pitch_type, df$game_year)
 ```
 
 
-
 ```{r}
 df$appch_diff <- (df$fb_appch - df$appch_angle)^2 
 df$dist_from_fb <- sqrt((df$plate_x - df$fb_platex)^2 + (df$plate_z - df$fb_platez)^2)
+df$velo_diff <- df$velo - df$fb_velo
 ```
 
 
@@ -87,28 +88,34 @@ samp <- samp %>% mutate(id = row_number())
 
 train <- na.omit(samp %>% sample_frac(.80)) 
 test <- na.omit(anti_join(samp, train, by = "id"))
-train <- select(train, -c(id, handedness, fb_pfxx, fb_pfxz, fb_appch, fb_platex, fb_platez))
-test <- select(test, -c(id, handedness, fb_pfxx, fb_pfxz, fb_appch, fb_platex, fb_platez))
+train <- select(train, -c(id, handedness,  velo, fb_appch, fb_platex, fb_platez, near_comp, appch_angle))
+test <- select(test, -c(id, handedness, velo, fb_appch, fb_platex, fb_platez, near_comp, appch_angle))
 ```
 
 
 ```{r}
 # random forest
+set.seed(123)
+Swstr_predict <- randomForest(formula = swstr ~ .,
+                data = train[,-c(1, 3)], na.action = na.omit, ntree = 500, replace = T, corr.bias = T, xtest = test[, -c(1, 3, 13)], ytest = test$swstr)
+print(Swstr_predict)
+```
 
-b <- randomForest(formula = swstr ~ .,
-                data = train[,-c(1, 3)], na.action = na.omit, ntree = 1000, mtry = 8, replace = T, corr.bias = T, xtest = test[, -c(1, 3, 15)], ytest = test$swstr)
-print(b)
+```{r}
+# just a linear model for reference
+a <- lm(formula = swstr ~ .,
+                data = train[,-c(1, 3)], na.action = na.omit)
+summary(a)
 ```
 
 
 ```{r}
-varImpPlot(b)
+varImpPlot(Swstr_predict)
 ```
 
 
-- Taking a general overview of our model, an R^2 of ~ 0.44 tells us a strong deal given just pure "stuff" and not taking the context of each individual pitch.  Of course there's a good deal of variation that we should not expect to be explained in the data I fed into the model.  While I do give pct usage and total num of pitches thrown, I do not give any information about usage by count, sequencing, batter handedness, leverage, so on and so forth. 
 
-- It's a little bit frustrating that nearest comps was one of our strongest predictors but it makes sense given that the context of each individual pitch matters and that we wouldn't be able to grasp any part of that with the data given to the model.  However not so surprising was that avg vertical location was a key factor as well as percent usage.   
+- Taking a general overview of our model, an R^2 of ~ 0.44 tells us a strong deal given just pure "stuff" and not taking the context of each individual pitch.  Of course there's a good deal of variation that we should not expect to be explained in the data I fed into the model.  While I do give pct usage and total num of pitches thrown, I do not give any information about usage by count, sequencing, batter handedness, leverage, so on and so forth. 
 
 - We've put together a decent model but it has a finite application.  Given that swstr% is something that'll stabilize fairly quickly it doesn't necessarily help identify current MLB candidates that will see a jump in performance, we can simply look at MLB pitchers who generate a strong amount of whiffs on one or more misused offspeed pitches.  This prediction is something that better serves identifying the minor league talent (in an ideal scenario where we have movement data on these pitches) who project to produce above average whiffs and therefore strikeouts. It'd greatly benefit our model to include swstr%'s for given players in our data set who have pitched in either the AA or AAA level.  Unfortunately, while we can grab swstr% for pitchers, we do not have publically available pitch-by-pitch data with each pitch type tracked. 
 
