@@ -1,0 +1,285 @@
+---
+title: "Katoh lite"
+author: "Owen McGrattan"
+date: "2/15/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Katoh 
+
+
+### Read in data and libraries
+
+```{r}
+# import libraries
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(randomForest)
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+# read in 2006-2019 mlb thru age 28 data
+mlb <- read_csv("./katoh_data/mlb_thru_28.csv")
+
+
+# read in 2006-2019 minor league data
+a_minor <- read_csv("./katoh_data/2007-19_A_minor_advanced.csv")
+low_a <- read_csv("./katoh_data/2007-19_Alow_minor_advanced.csv")
+high_minor <- read_csv("./katoh_data/2007-19_high_minor_advanced.csv")
+
+a_minor_batted <- read_csv("./katoh_data/2007-19_A_minor_batted.csv")
+low_a_batted <- read_csv("./katoh_data/2007-19_Alow_minor_batted.csv")
+high_minor_batted <- read_csv("./katoh_data/2007-19_high_minor_batted.csv")
+
+# read in rookie data
+rookies <- read_csv("./katoh_data/rookies.csv")
+
+# read in major league positional data
+defense <- read_csv("./katoh_data/defense.csv")
+```
+
+```{r}
+# before we merge, we want to take out overlap columns in our batted sets
+a_minor_batted <- a_minor_batted %>% select(Season, Name, Team, `SwStr%`)
+low_a_batted <- low_a_batted %>% select(Season, Name, Team, `SwStr%`)
+high_minor_batted <- high_minor_batted %>% select(Season, Name, Team, `SwStr%`)
+# merge data sets together
+# left merge standard and batted ball first
+a_minor <- merge(a_minor, a_minor_batted, by = c("Season", "Name", "Team"))
+low_a <- merge(low_a, low_a_batted, by = c("Season", "Name", "Team"))
+high_minor <- merge(high_minor, high_minor_batted, by = c("Season", "Name", "Team"))
+
+# take out a- and below ( for now, this is highly variable )
+minors <- rbind(a_minor,  high_minor)
+
+rm(a_minor_batted, low_a_batted, high_minor_batted, a_minor, low_a, high_minor)
+```
+
+########## attach defense to mlb player set.  first 
+
+
+```{r}
+# for each unique player, filter defense dataset, group by pos, grab pos with most innings played
+temp <- data.frame(Name = NA,
+                   playerid = unique(defense$playerid),
+                   pos = NA)
+
+for (i in 1:nrow(temp)) {
+  d <- filter(defense, playerid == temp$playerid[i])
+  group <- d %>% group_by(Pos, Name) %>% summarise(inn = sum(Inn))
+  temp$pos[i] <- group$Pos[which.max(group$inn)]
+  temp$Name[i] <- group$Name[1]
+}
+
+# merge with dat
+mlb <- merge(mlb, temp, by = c("Name", "playerid"))
+
+# get rid of any pitchers
+mlb <- mlb %>% filter(pos != "P")
+```
+
+
+```{r}
+# we want to add a war/162 variable instead because overall war is not suitable rn
+mlb$war_162 <- (mlb$WAR / mlb$G) * 162
+
+# only include those with at least 80 g played
+mlb <- filter(mlb, G >= 80)
+```
+
+
+```{r}
+# merge minor with major dataset
+# first hold major league set with war_162 and wrc+
+a <- mlb %>% select(Name, `wRC+`, WAR, PA, war_162)
+a <- a %>% rename(mlb_wrc_plus = `wRC+`,
+                  mlb_pa = PA)
+
+dat <- left_join(minors, a, by = "Name") 
+
+
+# filter out any age 29 or greater seasons in the minors
+dat <- dat %>% filter(Age < 29, Season < 2016)
+```
+
+
+
+
+```{r}
+# add war/162 lvl
+dat$war_lvl_162 <- NA
+for (i in 1:nrow(dat)) {
+  if (is.na(dat$WAR[i])) {
+    dat$war_lvl_162[i] <- '0'
+  } else if (dat$war_162[i] >= 6.0) {
+    dat$war_lvl_162[i] <- '7'
+  } else if (dat$war_162[i] >= 5.0) {
+    dat$war_lvl_162[i] <- '6'
+  } else if (dat$war_162[i] >= 4.0) {
+    dat$war_lvl_162[i] <- '5'
+  } else if (dat$war_162[i] >= 3.0) {
+    dat$war_lvl_162[i] <- '4'
+  } else if (dat$war_162[i] >= 2.0) {
+    dat$war_lvl_162[i] <- '3'
+  } else if (dat$war_162[i] >= 1.0) {
+    dat$war_lvl_162[i] <- '2'
+  } else {
+    dat$war_lvl_162[i] <- '1'
+  }
+}
+
+```
+
+
+We want to get rid of some of the zero classes, some ones.  There are a great number of zeros,
+at the risk of overfitting in our case we want to get rid of a vast majority of them.
+
+```{r}
+set.seed(123)
+zero <- dat[dat$war_lvl_162 == '0',]
+len_zero <- nrow(dat[dat$war_lvl_162 == '0',])
+smp_zero <- floor(0.85 * len_zero)
+
+zero_ind <- sample(as.numeric(row.names(zero)), size = smp_zero)
+dat <- subset(dat, !(as.numeric(rownames(dat)) %in% zero_ind ))
+
+
+one <- dat[dat$war_lvl_162 == '1',]
+len_one <- nrow(dat[dat$war_lvl_162 == '1',])
+smp_one <- floor(0.25 * len_one)
+
+one_ind <- sample(as.numeric(row.names(one)), size = smp_one)
+dat <- subset(dat, !(as.numeric(rownames(dat)) %in% one_ind ))
+```
+
+
+Just to see the class levels now, let's see a distribution
+
+```{r}
+ggplot(dat) + geom_histogram(aes(as.numeric(war_lvl_162)))
+```
+
+While it does not represent the true population, for the purposes of this rough exercise we do not want the class imbalance to throw off the classification.  And since I plan on applying this list to a list of already fairly highly ranked prospects, I'm not too concerned about discounting the probabilities that they do not make the majors.  Even still, I will expect the model will still cast a good amount of doubt on many MLB chances and thus drive down the end war/162 projection.
+
+We have cleaned our set for the most part but we still need to separate team names as well as label affiliate as it's own factor variable
+
+```{r}
+# strsplit for each league
+dat$level <- NA
+for (i in 1:nrow(dat)) {
+  txt <- strsplit(dat$Team[i], " ")[[1]]
+  dat$level[i] <- txt[length(txt)]
+}
+
+
+# turn all our character vals into factors
+dat =dat %>% mutate_if(is.character, as.factor)
+```
+
+
+Now we can start modeling.  
+
+```{r}
+# try no R ball
+#no_r <- dat %>% filter(mlb_pa > 1000)
+
+# generate test train splits 85/15
+uniq_names <- unique(dat$Name)
+smp_size <- floor(0.85 * length(uniq_names))
+set.seed(123)
+
+train_ind <- sample(seq_len(length(uniq_names)), size = smp_size)
+train_names <- uniq_names[train_ind]
+test_names <- uniq_names[-train_ind]
+
+
+train <- dat %>% filter(Name %in% train_names)
+test <- dat %>% filter(Name %in% test_names)
+x_train <- select(train, -c(Name, Season, Team, PlayerId, mlb_wrc_plus, WAR, mlb_pa,  wRC, wRAA, war_162, war_lvl_162))
+y_train <- train$war_lvl_162
+
+x_test <- select(test, -c(Name, Season, Team, PlayerId, mlb_wrc_plus, WAR, mlb_pa, wRC, wRAA, war_162, war_lvl_162))
+y_test <- test$war_lvl_162
+```
+
+
+
+############### xgboost model, with some more class balance
+
+```{r}
+library(xgboost)
+# transform level into numeric variable
+x_train$level <- as.integer(x_train$level) 
+x_test$level <- as.integer(x_test$level) 
+
+train$war_lvl_162 <- as.numeric(levels(train$war_lvl_162))[train$war_lvl_162]
+test$war_lvl_162 <- as.numeric(levels(test$war_lvl_162))[test$war_lvl_162]
+
+xgb.train = xgb.DMatrix(data=as.matrix(x_train),label= train$war_lvl_162)
+xgb.test = xgb.DMatrix(data=as.matrix(x_test),label= test$war_lvl_162)
+```
+
+
+
+```{r}
+# Define the parameters for multinomial classification
+num_class = length(unique(train$war_lvl_162)) 
+params = list(
+  booster="gbtree",
+  eta=0.03,
+  max_depth=5,
+  gamma=3,
+  subsample=0.75,
+  colsample_bytree=1,
+  objective="multi:softprob",
+  eval_metric="mlogloss",
+  max_delta_step = 1,
+  num_class=num_class
+)
+```
+
+
+```{r}
+# Train the XGBoost classifer
+xgb.fit=xgb.train(
+  params=params,
+  data=xgb.train,
+  nrounds=100,
+  nthreads=1,
+  early_stopping_rounds=10,
+  watchlist=list(val1=xgb.train,val2=xgb.test),
+  print_every_n = 10
+)
+```
+
+```{r}
+xgb.pred = predict(xgb.fit,xgb.test,reshape=T)
+xgb.pred = as.data.frame(xgb.pred)
+colnames(xgb.pred) = levels(as.factor(train$war_lvl_162))
+
+
+# Use the predicted label with the highest probability
+xgb.pred$prediction = apply(xgb.pred,1,function(x) colnames(xgb.pred)[which.max(x)])
+xgb.pred$label = test$war_lvl_162
+
+# Calculate the final accuracy
+result = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
+print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
+```
+
+Our overall accuracy will still be low with a conservative model as the highest probability classification will be centered around our 0s and 1s.  It does not mean that good players do not generate high projections in the end.
+
+###### save model
+
+```{r}
+saveRDS(xgb.fit, "xgb.rds")
+```
+

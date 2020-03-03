@@ -1,0 +1,157 @@
+---
+title: "katoh_predict"
+author: "Owen McGrattan"
+date: "2/23/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(dplyr)
+library(caret)
+library(randomForest)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+# read in 2006-2019 mlb thru age 28 data
+mlb <- read_csv("./katoh_data/mlb_thru_28.csv")
+
+
+# read in 2006-2019 minor league data
+a_minor <- read_csv("./katoh_data/2007-19_A_minor_advanced.csv")
+low_a <- read_csv("./katoh_data/2007-19_Alow_minor_advanced.csv")
+high_minor <- read_csv("./katoh_data/2007-19_high_minor_advanced.csv")
+
+a_minor_batted <- read_csv("./katoh_data/2007-19_A_minor_batted.csv")
+low_a_batted <- read_csv("./katoh_data/2007-19_Alow_minor_batted.csv")
+high_minor_batted <- read_csv("./katoh_data/2007-19_high_minor_batted.csv")
+
+
+# read in THE BOARD to get minor league names we desire
+board <- read_csv("./katoh_data/fangraphs-the-board-data.csv")
+
+```
+
+```{r}
+# before we merge, we want to take out overlap columns in our batted sets
+a_minor_batted <- a_minor_batted %>% select(Season, Name, Team, `SwStr%`)
+low_a_batted <- low_a_batted %>% select(Season, Name, Team, `SwStr%`)
+high_minor_batted <- high_minor_batted %>% select(Season, Name, Team, `SwStr%`)
+# merge data sets together
+# left merge standard and batted ball first
+a_minor <- merge(a_minor, a_minor_batted, by = c("Season", "Name", "Team"))
+low_a <- merge(low_a, low_a_batted, by = c("Season", "Name", "Team"))
+high_minor <- merge(high_minor, high_minor_batted, by = c("Season", "Name", "Team"))
+
+# exclude low minors (for now)
+minors <- rbind(a_minor,  high_minor)
+
+#load("rf.RData")
+xgb <- readRDS("xgb.rds")
+```
+
+
+```{r}
+# strsplit for each league
+minors$level <- NA
+for (i in 1:nrow(minors)) {
+  txt <- strsplit(minors$Team[i], " ")[[1]]
+  minors$level[i] <- txt[length(txt)]
+}
+
+minors$level <- as.factor(minors$level)
+```
+
+
+
+```{r}
+# keep only those players who are on THE BOARD and aren't old duplicates
+minors <- minors %>% filter(Name %in% board$Name, Season > 2012)
+minors <- minors %>% select(-c(PlayerId, wRC, wRAA))
+```
+
+
+
+
+```{r}
+library(xgboost)
+# transform level into numeric variable
+minors$level <- as.integer(minors$level) 
+
+dminors = xgb.DMatrix(data=as.matrix(minors[,-c(1, 2, 3)]))
+
+
+preds = predict(xgb,dminors,reshape=T)
+preds = as.data.frame(preds)
+colnames(preds) = c('0', '1', '2', '3', '4', '5', 
+                    '6', '7')
+```
+
+
+
+
+```{r}
+# merge preds with minors data
+preds <- cbind(minors, preds)
+```
+
+
+
+```{r}
+# create war for each row
+preds$war <- (preds$`1` * 1) + (preds$`2` * 2) + (preds$`3` * 3) + (preds$`4` * 4) + (preds$`5` * 5) + (preds$`6` * 6) + (preds$`7` * 7)
+```
+
+```{r}
+# put together big list containing each of the individual player seasons that we choose
+seasons <- c( 2019, 2018, 2017)
+
+pred <- data.frame(Name = character(0),
+                      age = numeric(0),
+                      season = numeric(0),
+                      war = numeric(0),
+                      pa = numeric(0),
+                      wrc_plus = numeric(0))
+for (j in seasons) {
+  yrs <- filter(preds, Season == j)
+  uniq_names <- unique(yrs$Name)
+  pred_yr <- data.frame(Name = uniq_names,
+                      age = NA,
+                      season = NA,
+                      war = NA,
+                      pa = NA,
+                      wrc_plus = NA)
+  
+  for (i in 1:length(uniq_names)) {
+    player <- filter(yrs, Name == uniq_names[i])
+    player$war_pt <- player$war * (player$PA / sum(player$PA))
+    player$wrc_plus <- player$`wRC+` * (player$PA / sum(player$PA))
+    
+    pred_yr$season[i] <- player$Season[1]
+    pred_yr$war[i] <- sum(player$war_pt)
+    pred_yr$age[i] <- min(player$Age)
+    pred_yr$pa[i] <- sum(player$PA)
+    pred_yr$wrc_plus[i] <- sum(player$wrc_plus)
+  }
+  
+  pred <- rbind(pred, pred_yr)
+}
+
+
+```
+
+```{r}
+
+pred_19 <- filter(pred, season == 2019) 
+pred_19 <- pred_19[order(-pred_19$war),]
+# write 19 preds to csv
+write.csv(x = pred_19, file = 'katoh_pred_19.csv')
+```
+
+
+
