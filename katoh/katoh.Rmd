@@ -74,7 +74,7 @@ temp <- data.frame(Name = NA,
 
 for (i in 1:nrow(temp)) {
   d <- filter(defense, playerid == temp$playerid[i])
-  group <- d %>% group_by(Pos, Name) %>% summarise(inn = sum(Inn))
+  group <- d %>% group_by(Pos, Name) %>% summarise(inn = sum(Inn), .groups = 'drop')
   temp$pos[i] <- group$Pos[which.max(group$inn)]
   temp$Name[i] <- group$Name[1]
 }
@@ -252,7 +252,7 @@ params = list(
 xgb.fit=xgb.train(
   params=params,
   data=xgb.train,
-  nrounds=100,
+  nrounds=200,
   nthreads=1,
   early_stopping_rounds=10,
   watchlist=list(val1=xgb.train,val2=xgb.test),
