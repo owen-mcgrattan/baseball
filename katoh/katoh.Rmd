@@ -21,6 +21,7 @@ library(dplyr)
 library(ggplot2)
 library(caret)
 library(randomForest)
+library(UBL)
 ```
 
 
@@ -139,27 +140,6 @@ for (i in 1:nrow(dat)) {
 ```
 
 
-We want to get rid of some of the zero classes, some ones.  There are a great number of zeros,
-at the risk of overfitting in our case we want to get rid of a vast majority of them.
-
-```{r}
-set.seed(123)
-zero <- dat[dat$war_lvl_162 == '0',]
-len_zero <- nrow(dat[dat$war_lvl_162 == '0',])
-smp_zero <- floor(0.85 * len_zero)
-
-zero_ind <- sample(as.numeric(row.names(zero)), size = smp_zero)
-dat <- subset(dat, !(as.numeric(rownames(dat)) %in% zero_ind ))
-
-
-one <- dat[dat$war_lvl_162 == '1',]
-len_one <- nrow(dat[dat$war_lvl_162 == '1',])
-smp_one <- floor(0.25 * len_one)
-
-one_ind <- sample(as.numeric(row.names(one)), size = smp_one)
-dat <- subset(dat, !(as.numeric(rownames(dat)) %in% one_ind ))
-```
-
 
 Just to see the class levels now, let's see a distribution
 
@@ -203,14 +183,21 @@ test_names <- uniq_names[-train_ind]
 
 train <- dat %>% filter(Name %in% train_names)
 test <- dat %>% filter(Name %in% test_names)
-x_train <- select(train, -c(Name, Season, Team, PlayerId, mlb_wrc_plus, WAR, mlb_pa,  wRC, wRAA, war_162, war_lvl_162))
+
+
+
+train <- select(train, -c(Name, Season, Team, PlayerId, mlb_wrc_plus, WAR, mlb_pa,  wRC, wRAA, war_162))
+
+# before we go further, we want to oversample our training values to combat some of the class imbalance in our set
+train <- SmoteClassif(war_lvl_162 ~ ., dat = train, C.perc = 'balance', k = 8, dist = 'HEOM')
+x_train <- select(train, -war_lvl_162)
 y_train <- train$war_lvl_162
 
 x_test <- select(test, -c(Name, Season, Team, PlayerId, mlb_wrc_plus, WAR, mlb_pa, wRC, wRAA, war_162, war_lvl_162))
 y_test <- test$war_lvl_162
 ```
 
-
+We've introduced some oversampling in our training set to try and counter some of the heavy class imbalance.  The strategy here was to oversample all minority classes to be equal our 0 war level.  More can be done with this later but for now it should serve as an improvement over the previous iteration of slightly scaling down the 0 and 1 war level players.  
 
 ############### xgboost model, with some more class balance
 
@@ -252,7 +239,7 @@ params = list(
 xgb.fit=xgb.train(
   params=params,
   data=xgb.train,
-  nrounds=200,
+  nrounds=400,
   nthreads=1,
   early_stopping_rounds=10,
   watchlist=list(val1=xgb.train,val2=xgb.test),
@@ -275,7 +262,7 @@ result = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
 print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
 ```
 
-Our overall accuracy will still be low with a conservative model as the highest probability classification will be centered around our 0s and 1s.  It does not mean that good players do not generate high projections in the end.
+Our overall accuracy will still be low as it can be awfully difficult to project out for young hitters, but our change in oversampling has bumped our accuracy from 51% to 64%.  This is still not particularly robust as we should do a better job of parameter tuning for the model but a nice jump.
 
 ###### save model
 
