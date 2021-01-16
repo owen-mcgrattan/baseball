@@ -39,9 +39,9 @@ board <- read_csv("./katoh_data/fangraphs-the-board-data.csv")
 
 ```{r}
 # before we merge, we want to take out overlap columns in our batted sets
-a_minor_batted <- a_minor_batted %>% select(Season, Name, Team, `SwStr%`)
-low_a_batted <- low_a_batted %>% select(Season, Name, Team, `SwStr%`)
-high_minor_batted <- high_minor_batted %>% select(Season, Name, Team, `SwStr%`)
+a_minor_batted <- a_minor_batted %>% select(-c(Age, PA, BABIP, PlayerId, Balls, Strikes, Pitches))
+low_a_batted <- low_a_batted %>% select(-c(Age, PA, BABIP, PlayerId, Balls, Strikes, Pitches))
+high_minor_batted <- high_minor_batted %>% select(-c(Age, PA, BABIP, PlayerId, Balls, Strikes, Pitches))
 # merge data sets together
 # left merge standard and batted ball first
 a_minor <- merge(a_minor, a_minor_batted, by = c("Season", "Name", "Team"))
@@ -72,7 +72,7 @@ minors$level <- as.factor(minors$level)
 ```{r}
 # keep only those players who are on THE BOARD and aren't old duplicates
 minors <- minors %>% filter(Name %in% board$Name, Season > 2012)
-minors <- minors %>% select(-c(PlayerId, wRC, wRAA))
+minors <- minors %>% select(-c(PlayerId, wRC, wRAA, wSB))
 ```
 
 

@@ -49,9 +49,13 @@ defense <- read_csv("./katoh_data/defense.csv")
 
 ```{r}
 # before we merge, we want to take out overlap columns in our batted sets
-a_minor_batted <- a_minor_batted %>% select(Season, Name, Team, `SwStr%`)
-low_a_batted <- low_a_batted %>% select(Season, Name, Team, `SwStr%`)
-high_minor_batted <- high_minor_batted %>% select(Season, Name, Team, `SwStr%`)
+a_minor_batted <- a_minor_batted %>% select(-c(Age, PA, BABIP, PlayerId, Balls, Strikes, Pitches))
+low_a_batted <- low_a_batted %>% select(-c(Age, PA, BABIP, PlayerId, Balls, Strikes, Pitches))
+high_minor_batted <- high_minor_batted %>% select(-c(Age, PA, BABIP, PlayerId, Balls, Strikes, Pitches))
+
+#a_minor_batted <- a_minor_batted %>% select(Season, Name, Team, `SwStr%`)
+#low_a_batted <- low_a_batted %>% select(Season, Name, Team, `SwStr%`)
+#high_minor_batted <- high_minor_batted %>% select(Season, Name, Team, `SwStr%`)
 # merge data sets together
 # left merge standard and batted ball first
 a_minor <- merge(a_minor, a_minor_batted, by = c("Season", "Name", "Team"))
@@ -92,8 +96,8 @@ mlb <- mlb %>% filter(pos != "P")
 # we want to add a war/162 variable instead because overall war is not suitable rn
 mlb$war_162 <- (mlb$WAR / mlb$G) * 162
 
-# only include those with at least 80 g played
-mlb <- filter(mlb, G >= 80)
+# only include those with at least 600 PA
+mlb <- filter(mlb, PA >= 600)
 ```
 
 
@@ -186,14 +190,14 @@ test <- dat %>% filter(Name %in% test_names)
 
 
 
-train <- select(train, -c(Name, Season, Team, PlayerId, mlb_wrc_plus, WAR, mlb_pa,  wRC, wRAA, war_162))
+train <- select(train, -c(Name, Season, Team, PlayerId, mlb_wrc_plus, WAR, mlb_pa,  wRC, wSB, wRAA, war_162))
 
 # before we go further, we want to oversample our training values to combat some of the class imbalance in our set
 train <- SmoteClassif(war_lvl_162 ~ ., dat = train, C.perc = 'balance', k = 8, dist = 'HEOM')
 x_train <- select(train, -war_lvl_162)
 y_train <- train$war_lvl_162
 
-x_test <- select(test, -c(Name, Season, Team, PlayerId, mlb_wrc_plus, WAR, mlb_pa, wRC, wRAA, war_162, war_lvl_162))
+x_test <- select(test, -c(Name, Season, Team, PlayerId, mlb_wrc_plus, WAR, mlb_pa, wRC, wSB, wRAA, war_162, war_lvl_162))
 y_test <- test$war_lvl_162
 ```
 
@@ -223,7 +227,7 @@ params = list(
   booster="gbtree",
   eta=0.03,
   max_depth=5,
-  gamma=3,
+  gamma=10,
   subsample=0.75,
   colsample_bytree=1,
   objective="multi:softprob",
@@ -239,9 +243,9 @@ params = list(
 xgb.fit=xgb.train(
   params=params,
   data=xgb.train,
-  nrounds=400,
+  nrounds=500,
   nthreads=1,
-  early_stopping_rounds=10,
+  early_stopping_rounds=5,
   watchlist=list(val1=xgb.train,val2=xgb.test),
   print_every_n = 10
 )
@@ -262,7 +266,15 @@ result = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
 print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
 ```
 
-Our overall accuracy will still be low as it can be awfully difficult to project out for young hitters, but our change in oversampling has bumped our accuracy from 51% to 64%.  This is still not particularly robust as we should do a better job of parameter tuning for the model but a nice jump.
+Our overall accuracy will still be low as it can be awfully difficult to project out for young hitters, but our change in oversampling has bumped our accuracy.  This is still not particularly robust as we should do a better job of parameter tuning for the model but a nice jump.
+
+
+```{r}
+# multiclass decision matrix
+table(xgb.pred$label, xgb.pred$prediction)
+```
+
+I'm celebrating that small jump in accuracy partly due to the fact that we have a confusion matrix that still has some variance on both sides of the diagonal.  We could reach a really high accuracy by simply guessing every player to be a 0 war player but that wouldn't be useful for anyone.  
 
 ###### save model
 
